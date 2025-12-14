@@ -139,11 +139,12 @@ class GCSurplusScraper:
             current_bid = 0.0
             bid_span = dl.find('span', id=re.compile(r'currentBidId-'))
             if bid_span:
-                bid_text = bid_span.get_text(strip=True).replace('$', '').replace(',', '')
-                try:
-                    current_bid = float(bid_text)
-                except:
-                    pass
+                bid_text = bid_span.get_text(strip=True).replace('$', '').replace(',', '').strip()
+                if bid_text:  # Only convert if not empty
+                    try:
+                        current_bid = float(bid_text)
+                    except ValueError:
+                        current_bid = 0.0
             
             # Extract minimum bid
             minimum_bid = None
@@ -152,11 +153,12 @@ class GCSurplusScraper:
             for i, dt in enumerate(dts):
                 if 'Minimum bid' in dt.get_text():
                     if i < len(dds):
-                        min_bid_text = dds[i].get_text(strip=True).replace('$', '').replace(',', '')
-                        try:
-                            minimum_bid = float(min_bid_text)
-                        except:
-                            pass
+                        min_bid_text = dds[i].get_text(strip=True).replace('$', '').replace(',', '').strip()
+                        if min_bid_text:  # Only convert if not empty
+                            try:
+                                minimum_bid = float(min_bid_text)
+                            except ValueError:
+                                minimum_bid = None
             
             # Extract location
             location_city = ""
@@ -169,19 +171,12 @@ class GCSurplusScraper:
                         location_city = location_parts[0].strip() if location_parts else ""
                         location_province = location_parts[1].strip() if len(location_parts) > 1 else ""
             
-            # Extract closing date
-            closing_date_text = ""
+            # Extract time remaining (optional)
+            time_remaining = ""
             for i, dt in enumerate(dts):
-                if 'Closing' in dt.get_text():
+                if 'Remaining' in dt.get_text():
                     if i < len(dds):
-                        closing_date_text = dds[i].get_text(strip=True)
-            
-            # Extract sale account
-            sale_account = ""
-            for i, dt in enumerate(dts):
-                if 'Sale account' in dt.get_text():
-                    if i < len(dds):
-                        sale_account = dds[i].get_text(strip=True)
+                        time_remaining = dds[i].get_text(strip=True)
             
             item = {
                 'lot_number': lot_number,
@@ -191,9 +186,7 @@ class GCSurplusScraper:
                 'minimum_bid': minimum_bid,
                 'location_city': location_city,
                 'location_province': location_province,
-                'closing_date_text': closing_date_text,
-                'sale_account': sale_account,
-                'detail_url': f"{self.base_url}/{href}" if not href.startswith('http') else href,
+                'time_remaining': time_remaining,
                 'is_available': True
             }
             
@@ -287,11 +280,16 @@ class GCSurplusScraper:
             
             # Check if item exists and is still available
             if data.get('RETURN_CD') == 200:
+                # Safely convert to float, handling empty strings
+                bid_amt = data.get('BID_AMT', 0)
+                next_bid_amt = data.get('NEXT_BID_AMT', 0)
+                bid_increment = data.get('BID_INCREMENT', 0)
+                
                 return {
                     'exists': True,
-                    'current_bid': float(data.get('BID_AMT', 0)),
-                    'next_bid': float(data.get('NEXT_BID_AMT', 0)),
-                    'bid_increment': float(data.get('BID_INCREMENT', 0)),
+                    'current_bid': float(bid_amt) if bid_amt != '' else 0.0,
+                    'next_bid': float(next_bid_amt) if next_bid_amt != '' else 0.0,
+                    'bid_increment': float(bid_increment) if bid_increment != '' else 0.0,
                     'closing_soon': data.get('CLOSING_SOON', 0),
                     'remaining': data.get('REMAINING', ''),
                     'buyer_no': data.get('BUYER_NO', 0)
