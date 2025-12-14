@@ -38,7 +38,11 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup."""
-    init_db()
+    try:
+        init_db()
+        print("Database initialized successfully")
+    except Exception as e:
+        print(f"Error initializing database: {e}")
 
 
 @app.get("/")
@@ -51,9 +55,20 @@ async def root():
             "auctions": "/api/auctions",
             "stats": "/api/stats",
             "scrape": "/api/scrape/manual",
+            "init": "/api/init",
             "docs": "/docs"
         }
     }
+
+
+@app.post("/api/init")
+async def initialize_database():
+    """Initialize database tables manually."""
+    try:
+        init_db()
+        return {"message": "Database initialized successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database initialization failed: {str(e)}")
 
 
 @app.get("/api/auctions")
