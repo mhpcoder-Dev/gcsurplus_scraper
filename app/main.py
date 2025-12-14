@@ -62,11 +62,19 @@ async def root():
 
 
 @app.post("/api/init")
-async def initialize_database():
+async def initialize_database(db: Session = Depends(get_db)):
     """Initialize database tables manually."""
     try:
         init_db()
-        return {"message": "Database initialized successfully"}
+        # Verify tables exist
+        from sqlalchemy import inspect
+        inspector = inspect(db.bind)
+        tables = inspector.get_table_names()
+        return {
+            "message": "Database initialized successfully",
+            "tables": tables,
+            "database_url": settings.database_url[:30] + "..." if settings.database_url else "Not configured"
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database initialization failed: {str(e)}")
 
@@ -114,11 +122,14 @@ async def scrape_now(background_tasks: BackgroundTasks, db: Session = Depends(ge
     def run_scrape():
         scraper = GCSurplusScraper()
         try:
+            print("Starting scrape...")
             items = scraper.scrape_all()
+            print(f"Scraped {len(items)} items")
             db_session = next(get_db())
             
             for item_data in items:
                 crud.create_or_update_item(db_session, item_data)
+            print(f"Saved {len(items)} items to database")
             
             # Mark items as unavailable if they're no longer in the listing
             all_lot_numbers = [item["lot_number"] for item in items]
