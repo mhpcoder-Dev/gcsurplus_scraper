@@ -339,10 +339,10 @@ class GCSurplusScraper:
                 
                 # Check bid status
                 bid_status = self.check_bid_status(lot_number)
-                if bid_status:
-                    item['exists'] = bid_status.get('exists', True)
-                    if bid_status.get('exists'):
-                        item.update(bid_status)
+                if bid_status and bid_status.get('exists'):
+                    # Remove 'exists' field as it's not in the database model
+                    bid_status.pop('exists', None)
+                    item.update(bid_status)
                 
                 enriched_items.append(item)
                 
