@@ -24,40 +24,10 @@ class GCSurplusScraper:
         })
     
     def fetch_listing_page(self) -> Optional[str]:
-        """Fetch the main listing page using POST request with form data"""
+        """Fetch the main listing page"""
         try:
-            # Form data for the POST request
-            form_data = {
-                'saleType': 'OB',  # Open Bid
-                'frm_txtKeyWord': '',
-                'vehFromYearSrch': '',
-                'vehToYearSrch': '',
-                'vehMakeSrch': '',
-                'vehModelSrch': '',
-                'vehSpecsSrch': '',
-                'vehFeatSrch': '',
-                'frm_selRegion': 'All',
-                'frm_selFilter': '',
-                'frm_cmdSearch': '1',
-                'snc': 'wfsav',
-                'sc': 'ach-shop',
-                'hpcs': '',
-                'vndsld': '0',
-                'str': '1',
-                'sf': 'aff-post',
-                'so': 'DESC',
-                'rpp': '25',
-                'gnr': '0',
-                'sr': '1',
-                'lci': '',
-                'h_so': 'DESC',
-                'h_sf': 'aff-post',
-                'hBeenHere': '1',
-            }
-            
-            response = self.session.post(
-                'https://www.gcsurplus.ca/mn-eng.cfm',
-                data=form_data,
+            response = self.session.get(
+                self.listing_url,
                 timeout=settings.request_timeout
             )
             response.raise_for_status()
@@ -73,11 +43,8 @@ class GCSurplusScraper:
         items = []
         
         try:
-            # Find the DataTable with auction items - try by ID first, then fallback to any table
-            table = soup.find('table', {'id': 'srchResultData'})
-            if not table:
-                # Fallback: find any table with class containing 'wb-tables'
-                table = soup.find('table', class_='wb-tables')
+            # Find the DataTable with auction items
+            table = soup.find('table', {'id': 'displaySales'})
             if not table:
                 logger.warning("Could not find auction table")
                 return items
@@ -107,20 +74,16 @@ class GCSurplusScraper:
     def parse_row(self, row) -> Optional[Dict]:
         """Parse a single table row to extract item data"""
         try:
-            # Find the main td with item info
-            item_cell = row.find('td', {'headers': 'itemInfo'})
-            if not item_cell:
+            cells = row.find_all('td')
+            if len(cells) < 4:
                 return None
             
-            # Extract title and link
-            link = item_cell.find('a')
+            # Extract lot number from link
+            link = cells[0].find('a')
             if not link:
                 return None
             
-            title = link.get_text(strip=True)
             href = link.get('href', '')
-            
-            # Extract lot and sale numbers from URL
             lot_match = re.search(r'lcn=(\d+)', href)
             sale_match = re.search(r'scn=(\d+)', href)
             
@@ -130,63 +93,33 @@ class GCSurplusScraper:
             lot_number = lot_match.group(1)
             sale_number = sale_match.group(1) if sale_match else None
             
-            # Extract data from dl (definition list)
-            dl = item_cell.find('dl')
-            if not dl:
-                return None
+            # Extract title
+            title = link.get_text(strip=True)
             
-            # Extract current bid
-            current_bid = 0.0
-            bid_span = dl.find('span', id=re.compile(r'currentBidId-'))
-            if bid_span:
-                bid_text = bid_span.get_text(strip=True).replace('$', '').replace(',', '').strip()
-                if bid_text:  # Only convert if not empty
-                    try:
-                        current_bid = float(bid_text)
-                    except ValueError:
-                        current_bid = 0.0
+            # Extract location (usually in second or third cell)
+            location = cells[1].get_text(strip=True) if len(cells) > 1 else ""
             
-            # Extract minimum bid
-            minimum_bid = None
-            dts = dl.find_all('dt')
-            dds = dl.find_all('dd')
-            for i, dt in enumerate(dts):
-                if 'Minimum bid' in dt.get_text():
-                    if i < len(dds):
-                        min_bid_text = dds[i].get_text(strip=True).replace('$', '').replace(',', '').strip()
-                        if min_bid_text:  # Only convert if not empty
-                            try:
-                                minimum_bid = float(min_bid_text)
-                            except ValueError:
-                                minimum_bid = None
+            # Extract closing date (usually in one of the cells)
+            closing_date_text = ""
+            for cell in cells:
+                text = cell.get_text(strip=True)
+                if any(month in text.lower() for month in ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']):
+                    closing_date_text = text
+                    break
             
-            # Extract location
-            location_city = ""
-            location_province = ""
-            for i, dt in enumerate(dts):
-                if 'Location' in dt.get_text():
-                    if i < len(dds):
-                        location = dds[i].get_text(strip=True)
-                        location_parts = location.split(',')
-                        location_city = location_parts[0].strip() if location_parts else ""
-                        location_province = location_parts[1].strip() if len(location_parts) > 1 else ""
-            
-            # Extract time remaining (optional)
-            time_remaining = ""
-            for i, dt in enumerate(dts):
-                if 'Remaining' in dt.get_text():
-                    if i < len(dds):
-                        time_remaining = dds[i].get_text(strip=True)
+            # Parse location
+            location_parts = location.split(',') if location else []
+            city = location_parts[0].strip() if location_parts else ""
+            province = location_parts[1].strip() if len(location_parts) > 1 else ""
             
             item = {
                 'lot_number': lot_number,
                 'sale_number': sale_number,
                 'title': title,
-                'current_bid': current_bid,
-                'minimum_bid': minimum_bid,
-                'location_city': location_city,
-                'location_province': location_province,
-                'time_remaining': time_remaining,
+                'location_city': city,
+                'location_province': province,
+                'closing_date_text': closing_date_text,
+                'detail_url': f"{self.base_url}/{href}" if not href.startswith('http') else href,
                 'is_available': True
             }
             
@@ -288,11 +221,9 @@ class GCSurplusScraper:
                 return {
                     'exists': True,
                     'current_bid': float(bid_amt) if bid_amt != '' else 0.0,
-                    'next_bid': float(next_bid_amt) if next_bid_amt != '' else 0.0,
+                    'next_minimum_bid': float(next_bid_amt) if next_bid_amt != '' else 0.0,  # Match database field name
                     'bid_increment': float(bid_increment) if bid_increment != '' else 0.0,
-                    'closing_soon': data.get('CLOSING_SOON', 0),
-                    'remaining': data.get('REMAINING', ''),
-                    'buyer_no': data.get('BUYER_NO', 0)
+                    'time_remaining': data.get('REMAINING', '')  # Match database field name
                 }
             else:
                 return {'exists': False}
