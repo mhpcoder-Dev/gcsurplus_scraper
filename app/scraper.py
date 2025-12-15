@@ -189,14 +189,33 @@ class GCSurplusScraper:
             logger.error(f"Error parsing row: {e}")
             return None
     
-    def fetch_item_details(self, lot_number: str) -> Optional[Dict]:
-        """Fetch detailed information for a specific item"""
+    def fetch_item_details(self, lot_number: str, sale_number: str = None) -> Optional[Dict]:
+        """Fetch detailed information for a specific item using POST request"""
         try:
-            # Construct detail page URL
-            detail_url = f"{self.base_url}/mn-eng.cfm?snc=wfsav&sc=enc-bid&vndsld=0&lci=&lcn={lot_number}&str=1&sf=aff-post&so=DESC"
+            # Detail page requires POST request with form data
+            detail_url = f"{self.base_url}/mn-eng.cfm"
             
-            response = self.session.get(detail_url, timeout=settings.request_timeout)
+            # Prepare form data for POST request
+            form_data = {
+                'snc': 'wfsav',
+                'sc': 'enc-bid',
+                'lcn': lot_number,
+                'scn': sale_number if sale_number else '',
+                'lct': 'L',
+                'str': '1',
+                'sf': 'aff-post',
+                'vndsld': '0',
+                'lci': '',
+                'so': '',
+                'srchtype': '',
+                'hBeenHere': '1'
+            }
+            
+            logger.info(f"Fetching details for lot {lot_number} using POST request")
+            
+            response = self.session.post(detail_url, data=form_data, timeout=settings.request_timeout)
             response.raise_for_status()
+            logger.info(f"Response status: {response.status_code}, Content length: {len(response.text)}")
             
             soup = BeautifulSoup(response.text, 'lxml')
             details = {}
@@ -386,10 +405,11 @@ class GCSurplusScraper:
         for item in all_items[:100]:  # Limit to 100 items to avoid overwhelming the server
             try:
                 lot_number = item['lot_number']
+                sale_number = item.get('sale_number')
                 logger.info(f"Fetching details for lot {lot_number}")
                 
-                # Get detailed info
-                details = self.fetch_item_details(lot_number)
+                # Get detailed info with sale_number
+                details = self.fetch_item_details(lot_number, sale_number)
                 if details:
                     item.update(details)
                 
