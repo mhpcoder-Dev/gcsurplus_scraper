@@ -38,11 +38,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup."""
-    try:
-        init_db()
-        print("Database initialized successfully")
-    except Exception as e:
-        print(f"Error initializing database: {e}")
+    init_db()
 
 
 @app.get("/")
@@ -55,42 +51,27 @@ async def root():
             "auctions": "/api/auctions",
             "stats": "/api/stats",
             "scrape": "/api/scrape/manual",
-            "init": "/api/init",
             "docs": "/docs"
         }
     }
 
 
-@app.post("/api/init")
-async def initialize_database(db: Session = Depends(get_db)):
-    """Initialize database tables manually."""
-    try:
-        init_db()
-        # Verify tables exist
-        from sqlalchemy import inspect
-        inspector = inspect(db.bind)
-        tables = inspector.get_table_names()
-        return {
-            "message": "Database initialized successfully",
-            "tables": tables,
-            "database_url": settings.database_url[:30] + "..." if settings.database_url else "Not configured"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database initialization failed: {str(e)}")
-
-
 @app.get("/api/auctions")
 async def list_auctions(
     skip: int = Query(0, description="Number of items to skip"),
-    limit: int = Query(50, description="Number of items to return"),
+    limit: int = Query(100, description="Number of items to return (max 500)"),
     status: Optional[str] = Query(None, description="Filter by status (active, closed, expired)"),
     search: Optional[str] = Query(None, description="Search in title and description"),
+    country: Optional[str] = Query(None, description="Filter by country (Canada, USA)"),
+    category: Optional[str] = Query(None, description="Filter by category"),
     db: Session = Depends(get_db)
 ):
     """
     Get list of auction items with pagination and filters.
     """
-    items = crud.get_all_items(db, skip=skip, limit=limit, status=status, search=search)
+    # Cap the limit to prevent excessive queries
+    limit = min(limit, 500)
+    items = crud.get_all_items(db, skip=skip, limit=limit, status=status, search=search, country=country, category=category)
     return items
 
 
@@ -122,14 +103,11 @@ async def scrape_now(background_tasks: BackgroundTasks, db: Session = Depends(ge
     def run_scrape():
         scraper = GCSurplusScraper()
         try:
-            print("Starting scrape...")
             items = scraper.scrape_all()
-            print(f"Scraped {len(items)} items")
             db_session = next(get_db())
             
             for item_data in items:
                 crud.create_or_update_item(db_session, item_data)
-            print(f"Saved {len(items)} items to database")
             
             # Mark items as unavailable if they're no longer in the listing
             all_lot_numbers = [item["lot_number"] for item in items]
@@ -195,3 +173,109 @@ async def cleanup_old_items(db: Session = Depends(get_db)):
     """
     deleted_count = crud.delete_old_items(db, days=0)
     return {"message": f"Deleted {deleted_count} old items"}
+
+
+@app.post("/api/migrate")
+async def migrate_database():
+    """
+    Run database migration to add country and category columns.
+    Safe to run multiple times - will not affect existing data.
+    """
+    from sqlalchemy import text
+    from app.database import engine
+    
+    migration_steps = []
+    
+    try:
+        with engine.connect() as connection:
+            # Step 1: Add country column with default value
+            try:
+                connection.execute(text("""
+                    ALTER TABLE auction_items 
+                    ADD COLUMN IF NOT EXISTS country VARCHAR(50) DEFAULT 'Canada'
+                """))
+                connection.commit()
+                migration_steps.append("✓ Added 'country' column")
+            except Exception as e:
+                migration_steps.append(f"✓ Country column exists or error: {str(e)[:50]}")
+            
+            # Step 2: Create index on country
+            try:
+                connection.execute(text("""
+                    CREATE INDEX IF NOT EXISTS ix_auction_items_country 
+                    ON auction_items(country)
+                """))
+                connection.commit()
+                migration_steps.append("✓ Created index on 'country'")
+            except Exception as e:
+                migration_steps.append(f"✓ Country index exists")
+            
+            # Step 3: Add category column
+            try:
+                connection.execute(text("""
+                    ALTER TABLE auction_items 
+                    ADD COLUMN IF NOT EXISTS category VARCHAR(100)
+                """))
+                connection.commit()
+                migration_steps.append("✓ Added 'category' column")
+            except Exception as e:
+                migration_steps.append(f"✓ Category column exists or error: {str(e)[:50]}")
+            
+            # Step 4: Create index on category
+            try:
+                connection.execute(text("""
+                    CREATE INDEX IF NOT EXISTS ix_auction_items_category 
+                    ON auction_items(category)
+                """))
+                connection.commit()
+                migration_steps.append("✓ Created index on 'category'")
+            except Exception as e:
+                migration_steps.append(f"✓ Category index exists")
+            
+            # Step 5: Update existing records with country='Canada' if NULL
+            try:
+                result = connection.execute(text("""
+                    UPDATE auction_items 
+                    SET country = 'Canada' 
+                    WHERE country IS NULL
+                """))
+                connection.commit()
+                migration_steps.append(f"✓ Updated {result.rowcount} rows with default country")
+            except Exception as e:
+                migration_steps.append(f"✓ Country update: {str(e)[:50]}")
+            
+            # Step 6: Update existing records with categories based on titles
+            try:
+                from app.scraper import GCSurplusScraper
+                
+                result = connection.execute(text("""
+                    SELECT id, title FROM auction_items WHERE category IS NULL
+                """))
+                rows = result.fetchall()
+                
+                updated = 0
+                for row_id, title in rows:
+                    category = GCSurplusScraper.extract_category(title)
+                    connection.execute(
+                        text("UPDATE auction_items SET category = :cat WHERE id = :id"),
+                        {"cat": category, "id": row_id}
+                    )
+                    updated += 1
+                
+                connection.commit()
+                migration_steps.append(f"✓ Auto-detected categories for {updated} existing items")
+            except Exception as e:
+                migration_steps.append(f"✓ Category detection: {str(e)[:100]}")
+        
+        return {
+            "status": "success",
+            "message": "Migration completed successfully",
+            "steps": migration_steps
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Migration failed: {str(e)}",
+            "steps": migration_steps
+        }

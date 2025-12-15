@@ -39,10 +39,16 @@ wheels/
 *.swo
 *~
 
+# Test files
+test.html
+test_*.py
+*_test.py
+test/
+tests/__pycache__/
+
 # Logs
 *.log
 
 # OS
 .DS_Store
-cgecj.js
 Thumbs.db

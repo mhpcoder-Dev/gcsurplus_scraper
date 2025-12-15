@@ -40,6 +40,10 @@ class AuctionItem(Base):
     location_city = Column(String(200))
     location_province = Column(String(100))
     location_address = Column(Text)
+    country = Column(String(50), default="Canada", index=True)  # Canada or USA
+    
+    # Category
+    category = Column(String(100), index=True)  # e.g., Vehicles, Electronics, Land, etc.
     
     # Dates
     closing_date = Column(DateTime)

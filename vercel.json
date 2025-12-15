@@ -12,6 +12,9 @@
       "dest": "api/index.py"
     }
   ],
+  "env": {
+    "DATABASE_URL": "@database_url"
+  },
   "crons": [
     {
       "path": "/api/scrape/cron",

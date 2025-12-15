@@ -31,17 +31,25 @@ def create_or_update_item(db: Session, item_data: Dict) -> AuctionItem:
 def get_all_items(
     db: Session,
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 100,
     status: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    country: Optional[str] = None,
+    category: Optional[str] = None
 ) -> List[AuctionItem]:
     """
     Get all auction items with optional filters.
     """
-    query = db.query(AuctionItem)
+    query = db.query(AuctionItem).order_by(AuctionItem.updated_at.desc())
     
     if status:
         query = query.filter(AuctionItem.status == status)
+    
+    if country:
+        query = query.filter(AuctionItem.country == country)
+    
+    if category:
+        query = query.filter(AuctionItem.category.ilike(f"%{category}%"))
     
     if search:
         search_term = f"%{search}%"
@@ -94,16 +102,34 @@ def delete_old_items(db: Session, days: int = 0) -> int:
 
 def get_stats(db: Session) -> Dict:
     """
-    Get database statistics.
+    Get database statistics including country and category breakdowns.
     """
     total = db.query(AuctionItem).count()
     active = db.query(AuctionItem).filter(AuctionItem.status == "active").count()
     closed = db.query(AuctionItem).filter(AuctionItem.status == "closed").count()
     expired = db.query(AuctionItem).filter(AuctionItem.status == "expired").count()
     
+    # Get country breakdown
+    canada_count = db.query(AuctionItem).filter(AuctionItem.country == "Canada").count()
+    usa_count = db.query(AuctionItem).filter(AuctionItem.country == "USA").count()
+    
+    # Get category breakdown (top categories)
+    from sqlalchemy import func
+    categories = db.query(
+        AuctionItem.category, 
+        func.count(AuctionItem.id).label('count')
+    ).group_by(AuctionItem.category).order_by(func.count(AuctionItem.id).desc()).all()
+    
+    category_stats = {cat: count for cat, count in categories if cat}
+    
     return {
         "total_items": total,
         "active_auctions": active,
         "closed_auctions": closed,
-        "expired_auctions": expired
+        "expired_auctions": expired,
+        "by_country": {
+            "Canada": canada_count,
+            "USA": usa_count
+        },
+        "by_category": category_stats
     }

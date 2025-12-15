@@ -171,6 +171,9 @@ class GCSurplusScraper:
                     elif 'Remaining' in dt_text:
                         time_remaining = dd_text
             
+            # Extract category from title or description
+            category = self.extract_category(title)
+            
             item = {
                 'lot_number': lot_number,
                 'sale_number': sale_number,
@@ -180,7 +183,9 @@ class GCSurplusScraper:
                 'location_city': location_city,
                 'location_province': location_province,
                 'time_remaining': time_remaining,
-                'is_available': True
+                'is_available': True,
+                'country': 'Canada',  # GCSurplus is Canadian government
+                'category': category
             }
             
             return item
@@ -363,6 +368,33 @@ class GCSurplusScraper:
         except:
             return 0.0
     
+    @staticmethod
+    def extract_category(title: str) -> Optional[str]:
+        """Extract category from title based on keywords"""
+        title_lower = title.lower()
+        
+        # Define category keywords
+        categories = {
+            'Vehicles': ['vehicle', 'car', 'truck', 'van', 'suv', 'bus', 'trailer', 'automobile'],
+            'Motorcycles': ['motorcycle', 'motorbike', 'scooter', 'bike'],
+            'Electronics': ['computer', 'laptop', 'monitor', 'printer', 'electronics', 'phone', 'tablet', 'server'],
+            'Furniture': ['desk', 'chair', 'table', 'cabinet', 'furniture', 'shelf', 'bookcase'],
+            'Industrial': ['industrial', 'machinery', 'equipment', 'tool', 'generator', 'compressor'],
+            'Real Estate': ['land', 'property', 'building', 'real estate', 'warehouse', 'office space'],
+            'Collectibles': ['art', 'antique', 'collectible', 'memorabilia', 'coin', 'stamp'],
+            'Office Equipment': ['copier', 'fax', 'office', 'scanner', 'shredder'],
+            'Medical': ['medical', 'hospital', 'surgical', 'healthcare', 'diagnostic'],
+            'Kitchen': ['kitchen', 'stove', 'oven', 'refrigerator', 'freezer', 'dishwasher'],
+        }
+        
+        # Check each category
+        for category, keywords in categories.items():
+            for keyword in keywords:
+                if keyword in title_lower:
+                    return category
+        
+        return 'Other'
+    
     def scrape_all(self) -> List[Dict]:
         """Scrape all auction listings with pagination"""
         logger.info("Starting full scrape...")
@@ -402,7 +434,8 @@ class GCSurplusScraper:
         
         # Fetch details for each item
         enriched_items = []
-        for item in all_items[:100]:  # Limit to 100 items to avoid overwhelming the server
+        # Process all collected items (up to 250 from 10 pages)
+        for item in all_items:
             try:
                 lot_number = item['lot_number']
                 sale_number = item.get('sale_number')
