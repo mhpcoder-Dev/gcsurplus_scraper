@@ -9,6 +9,12 @@
       }
     }
   ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
+  ],
   "crons": [
     {
       "path": "/api/scrape/cron",
