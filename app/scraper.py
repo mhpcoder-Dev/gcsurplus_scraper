@@ -227,7 +227,14 @@ class GCSurplusScraper:
             # Extract description from span with id itemCmntId
             desc_elem = soup.find('span', {'id': 'itemCmntId'})
             if desc_elem:
-                details['description'] = desc_elem.get_text(separator=' ', strip=True)
+                # Get text with proper spacing, preserving structure
+                description_text = desc_elem.get_text(separator=' ', strip=True)
+                # Clean up multiple spaces
+                description_text = re.sub(r'\s+', ' ', description_text)
+                details['description'] = description_text
+                logger.info(f"Extracted description: {description_text[:100]}...")
+            else:
+                logger.warning("No description element found with id 'itemCmntId'")
             
             # Extract quantity from Quantity: pattern in text
             qty_elem = soup.find('dt', string=re.compile(r'Quantity', re.I))
@@ -239,15 +246,34 @@ class GCSurplusScraper:
                     if qty_match:
                         details['quantity'] = int(qty_match.group(1))
             
-            # Extract images from img tags with class newViewer
+            # Extract images - try multiple methods
             images = []
-            for img in soup.find_all('img', {'class': 'newViewer'}):
-                img_src = img.get('src', '')
-                if img_src and not img_src.startswith('data:'):
-                    full_url = f"{self.base_url}/{img_src}" if not img_src.startswith('http') else img_src
-                    images.append(full_url)
+            
+            # Method 1: Look for anchor tags around images with class newViewer
+            for link in soup.find_all('a', href=re.compile(r'\.(jpg|jpeg|png|gif)$', re.I)):
+                img_url = link.get('href', '')
+                if img_url and not img_url.startswith('data:'):
+                    # Build full URL
+                    if not img_url.startswith('http'):
+                        img_url = f"{self.base_url}/{img_url.lstrip('/')}"
+                    if img_url not in images:
+                        images.append(img_url)
+            
+            # Method 2: Fallback - look for img tags with class newViewer
+            if not images:
+                for img in soup.find_all('img', class_='newViewer'):
+                    img_src = img.get('src', '')
+                    if img_src and not img_src.startswith('data:'):
+                        if not img_src.startswith('http'):
+                            img_src = f"{self.base_url}/{img_src.lstrip('/')}"
+                        if img_src not in images:
+                            images.append(img_src)
+            
             if images:
                 details['image_urls'] = json.dumps(images)
+                logger.info(f"Extracted {len(images)} images")
+            else:
+                logger.warning("No images found for this item")
             
             # Extract contact info from dt/dd pairs
             contact_dt = soup.find('dt', string=re.compile(r'Contact', re.I))
