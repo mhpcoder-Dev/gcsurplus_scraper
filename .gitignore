@@ -46,6 +46,9 @@ test_*.py
 test/
 tests/__pycache__/
 
+# Documentation (temporary)
+*.md
+
 # Logs
 *.log
 
