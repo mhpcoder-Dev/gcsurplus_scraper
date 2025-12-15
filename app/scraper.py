@@ -25,6 +25,10 @@ class GCSurplusScraper:
     
     def fetch_listing_page(self) -> Optional[str]:
         """Fetch the main listing page using POST request with form data"""
+        return self.fetch_listing_page_with_offset(1)
+    
+    def fetch_listing_page_with_offset(self, start: int) -> Optional[str]:
+        """Fetch listing page with pagination offset"""
         try:
             # Form data for the POST request
             form_data = {
@@ -35,10 +39,10 @@ class GCSurplusScraper:
                 'snc': 'wfsav',
                 'sc': 'ach-shop',
                 'vndsld': '0',
-                'str': '1',
+                'str': str(start),  # Starting position for pagination
                 'sf': 'aff-post',
                 'so': 'DESC',
-                'rpp': '25',
+                'rpp': '25',  # Results per page
                 'sr': '1',
                 'lci': '',
                 'h_so': 'DESC',
@@ -52,7 +56,7 @@ class GCSurplusScraper:
                 timeout=settings.request_timeout
             )
             response.raise_for_status()
-            logger.info(f"Successfully fetched listing page")
+            logger.info(f"Successfully fetched listing page (start={start})")
             return response.text
         except Exception as e:
             logger.error(f"Error fetching listing page: {e}")
@@ -220,30 +224,46 @@ class GCSurplusScraper:
             if time_elem:
                 details['time_remaining'] = time_elem.get_text(strip=True)
             
-            # Extract description
+            # Extract description from span with id itemCmntId
             desc_elem = soup.find('span', {'id': 'itemCmntId'})
             if desc_elem:
-                details['description'] = desc_elem.get_text(strip=True)
+                details['description'] = desc_elem.get_text(separator=' ', strip=True)
             
-            # Extract quantity
-            qty_pattern = re.search(r'Quantity:\s*(\d+)', response.text)
-            if qty_pattern:
-                details['quantity'] = int(qty_pattern.group(1))
+            # Extract quantity from Quantity: pattern in text
+            qty_elem = soup.find('dt', string=re.compile(r'Quantity', re.I))
+            if qty_elem:
+                qty_dd = qty_elem.find_next_sibling('dd')
+                if qty_dd:
+                    qty_text = qty_dd.get_text(strip=True)
+                    qty_match = re.search(r'(\d+)', qty_text)
+                    if qty_match:
+                        details['quantity'] = int(qty_match.group(1))
             
-            # Extract images
+            # Extract images from img tags with class newViewer
             images = []
             for img in soup.find_all('img', {'class': 'newViewer'}):
                 img_src = img.get('src', '')
                 if img_src and not img_src.startswith('data:'):
                     full_url = f"{self.base_url}/{img_src}" if not img_src.startswith('http') else img_src
                     images.append(full_url)
-            details['image_urls'] = json.dumps(images)
+            if images:
+                details['image_urls'] = json.dumps(images)
             
-            # Extract contact info
-            contact_pattern = re.search(r'Contact.*?:\s*</dt>\s*<dd>(.*?)</dd>', response.text, re.DOTALL)
-            if contact_pattern:
-                contact_text = BeautifulSoup(contact_pattern.group(1), 'lxml').get_text(strip=True)
-                details['contact_name'] = contact_text.split('\n')[0] if contact_text else None
+            # Extract contact info from dt/dd pairs
+            contact_dt = soup.find('dt', string=re.compile(r'Contact', re.I))
+            if contact_dt:
+                contact_dd = contact_dt.find_next_sibling('dd')
+                if contact_dd:
+                    contact_lines = contact_dd.get_text(strip=True).split('\n')
+                    if len(contact_lines) > 0:
+                        details['contact_name'] = contact_lines[0].strip()
+                    if len(contact_lines) > 1:
+                        details['contact_phone'] = contact_lines[1].strip()
+                    if len(contact_lines) > 2:
+                        # Extract email from anchor tag
+                        email_link = contact_dd.find('a', href=re.compile(r'mailto:'))
+                        if email_link:
+                            details['contact_email'] = email_link.get_text(strip=True)
             
             # Extract sale/lot number
             sale_lot_pattern = re.search(r'Sale / Lot\s*:\s*</dt>\s*<dd[^>]*>(.*?)</dd>', response.text, re.DOTALL)
@@ -299,22 +319,45 @@ class GCSurplusScraper:
             return 0.0
     
     def scrape_all(self) -> List[Dict]:
-        """Scrape all auction listings"""
+        """Scrape all auction listings with pagination"""
         logger.info("Starting full scrape...")
         
-        # Fetch listing page
-        html = self.fetch_listing_page()
-        if not html:
-            logger.error("Failed to fetch listing page")
-            return []
+        all_items = []
+        page = 1
+        max_pages = 10  # Limit to prevent infinite loops
         
-        # Parse items
-        items = self.parse_listing_page(html)
-        logger.info(f"Parsed {len(items)} items from listing page")
+        while page <= max_pages:
+            logger.info(f"Fetching page {page}...")
+            
+            # Fetch listing page
+            html = self.fetch_listing_page_with_offset((page - 1) * 25)
+            if not html:
+                logger.error(f"Failed to fetch page {page}")
+                break
+            
+            # Parse items
+            items = self.parse_listing_page(html)
+            if not items:
+                logger.info(f"No more items found on page {page}")
+                break
+            
+            logger.info(f"Parsed {len(items)} items from page {page}")
+            all_items.extend(items)
+            
+            # Check for next page link
+            soup = BeautifulSoup(html, 'lxml')
+            next_link = soup.find('li', class_='next')
+            if not next_link or 'disabled' in next_link.get('class', []):
+                logger.info("No more pages available")
+                break
+            
+            page += 1
+        
+        logger.info(f"Total items collected: {len(all_items)}")
         
         # Fetch details for each item
         enriched_items = []
-        for item in items[:50]:  # Limit to 50 items to avoid overwhelming the server
+        for item in all_items[:100]:  # Limit to 100 items to avoid overwhelming the server
             try:
                 lot_number = item['lot_number']
                 logger.info(f"Fetching details for lot {lot_number}")
