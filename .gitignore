@@ -39,16 +39,6 @@ wheels/
 *.swo
 *~
 
-# Test files
-test.html
-test_*.py
-*_test.py
-test/
-tests/__pycache__/
-
-# Documentation (temporary)
-*.md
-
 # Logs
 *.log
 
