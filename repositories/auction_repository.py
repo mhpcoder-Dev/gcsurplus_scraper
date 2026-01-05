@@ -113,6 +113,16 @@ class AuctionRepository:
         # This helps the query planner use the best index
         if status:
             query = query.filter(AuctionItem.status == status)
+            
+            # If status is 'active', only return auctions that haven't ended yet
+            # This handles timezone conversion issues from USA sites
+            if status == 'active':
+                query = query.filter(
+                    or_(
+                        AuctionItem.closing_date.is_(None),
+                        AuctionItem.closing_date >= datetime.utcnow()
+                    )
+                )
         
         if source:
             query = query.filter(AuctionItem.source == source)
@@ -163,6 +173,16 @@ class AuctionRepository:
         
         if status:
             query = query.filter(AuctionItem.status == status)
+            
+            # If status is 'active', only count auctions that haven't ended yet
+            # This ensures pagination metadata matches the filtered results
+            if status == 'active':
+                query = query.filter(
+                    or_(
+                        AuctionItem.closing_date.is_(None),
+                        AuctionItem.closing_date >= datetime.utcnow()
+                    )
+                )
         
         if asset_type:
             # Support multiple asset types separated by comma
