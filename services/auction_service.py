@@ -177,6 +177,49 @@ class AuctionService:
             "deleted": deleted_count
         }
     
+    def save_scraped_items(self, items: List[Dict]) -> int:
+        """
+        Save pre-scraped items to database.
+        Used by scheduler when items are already scraped.
+        
+        Args:
+            items: List of item dictionaries to save
+            
+        Returns:
+            Number of items saved
+        """
+        if not items:
+            return 0
+        
+        created_count = 0
+        updated_count = 0
+        
+        for item_data in items:
+            source = item_data.get("source", "unknown")
+            lot_number = item_data.get("lot_number")
+            
+            if not lot_number:
+                logger.warning(f"Skipping item without lot_number: {item_data}")
+                continue
+            
+            try:
+                existing = self.repository.get_by_lot_number(lot_number, source)
+                
+                if existing:
+                    self.repository.update(existing, item_data)
+                    updated_count += 1
+                else:
+                    self.repository.create(item_data)
+                    created_count += 1
+            except Exception as e:
+                logger.error(f"Error saving item {lot_number}: {e}")
+                continue
+        
+        total_saved = created_count + updated_count
+        logger.info(f"Saved {total_saved} items ({created_count} created, {updated_count} updated)")
+        
+        return total_saved
+    
     def scrape_all_sources(self) -> Dict:
         """
         Scrape all configured auction sources.

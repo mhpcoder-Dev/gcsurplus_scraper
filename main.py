@@ -8,6 +8,7 @@ import logging
 from core.database import get_db, init_db
 from services import AuctionService
 from config import settings
+from scheduler import start_scheduler, stop_scheduler
 
 # Configure logging
 logging.basicConfig(
@@ -48,11 +49,24 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on startup."""
+    """Initialize database and start scheduler on startup."""
     logger.info("Starting FastAPI application")
     logger.info(f"Database URL: {settings.database_url[:20]}...")
     init_db()
     logger.info("Database initialized successfully")
+    
+    # Start the scheduler with site-specific configurations
+    scheduler = start_scheduler()
+    if scheduler:
+        logger.info("Background scheduler started successfully")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop scheduler on shutdown."""
+    logger.info("Shutting down FastAPI application")
+    stop_scheduler()
+    logger.info("Scheduler stopped")
 
 
 @app.get("/")

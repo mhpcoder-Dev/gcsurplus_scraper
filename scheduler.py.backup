@@ -1,0 +1,646 @@
+"""
+Scheduler initialization and management.
+
+This module provides the entry point for starting and managing the
+auction scraper scheduler with site-specific configurations.
+"""
+
+import logging
+import asyncio
+from services.scheduler_service import SchedulerService
+from config import settings
+
+logger = logging.getLogger(__name__)
+
+# Global scheduler instance
+_scheduler: SchedulerService = None
+
+
+def get_scheduler() -> SchedulerService:
+    """Get the global scheduler instance"""
+    global _scheduler
+    if _scheduler is None:
+        _scheduler = SchedulerService()
+    return _scheduler
+
+
+def start_scheduler() -> SchedulerService:
+    """
+    Initialize and start the scheduler for all configured sites.
+    
+    Returns:
+        SchedulerService instance
+    """
+    if not settings.scheduler_enabled:
+        logger.info("Scheduler is disabled in configuration")
+        return None
+    
+    scheduler = get_scheduler()
+    
+    # Add jobs for all configured sites
+    scheduler.add_all_sites()
+    
+    # Start the scheduler
+    scheduler.start()
+    
+    return scheduler
+
+
+def stop_scheduler():
+    """Stop the scheduler gracefully"""
+    global _scheduler
+    if _scheduler and _scheduler.scheduler.running:
+        logger.info("Stopping scheduler...")
+        _scheduler.stop()
+        _scheduler = None
+
+
+async def run_scheduler():
+    """
+    Run the scheduler indefinitely (for development/testing).
+    This keeps the scheduler running even when not embedded in FastAPI.
+    """
+    scheduler = start_scheduler()
+    
+    if not scheduler:
+        logger.error("Failed to start scheduler")
+        return
+    
+    try:
+        # Keep the scheduler running
+        while True:
+            await asyncio.sleep(1)
+    except KeyboardInterrupt:
+        logger.info("Received interrupt signal")
+        stop_scheduler()
+
+
+if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Run scheduler standalone
+    asyncio.run(run_scheduler())
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Perfect for production applications! 🚀- ✅ Professional industry standard- ✅ Maintainable codebase- ✅ Scalable structure- ✅ Reusable components- ✅ Easy to test each layer independently- ✅ Clear separation of concernsThis layered architecture provides:## Summary```    return {...}    # Transform ORM model to API dictdef _transform_to_api(self, model):    return [self._transform_to_api(item) for item in items]    items = self.repository.get_all()def get_auctions(self):# Service Layer```python### Transformation Pattern```    self.repository.mark_unavailable(lot_numbers, source)    lot_numbers = [i['lot_number'] for i in items]    # Mark old items            self.create_or_update_auction(item)    for item in items:        items = scraper.scrape_all()def scrape_source(self, source):# Service Layer```python### Batch Operations Pattern```        return self.repository.create(item_data)    else:        return self.repository.update(existing, item_data)    if existing:        existing = self.repository.get_by_lot_number(item_data['lot_number'])def create_or_update_auction(self, item_data):# Service Layer```python### Create/Update Pattern (Upsert)## Common Patterns7. **Service orchestrates** - Service is the "smart" layer6. **Keep repositories dumb** - Only data access, no business rules5. **Keep models thin** - Only structure, no business logic4. **Return DTOs from service** - Transform models to dicts in service layer3. **Dependency injection** - Pass dependencies (db session) to constructors2. **One responsibility per layer** - Don't mix concerns1. **Never skip layers** - Always go through proper layer hierarchy## Best Practices**Result:** Better organized, more maintainable, easier to test```core/ (50 lines)             # Infrastructuremodels/ (100 lines)          # Data structurerepositories/ (200 lines)    # Data accessservices/ (200 lines)        # Business logicmain.py (200 lines)          # API only```### New (Layered)```  └─ Transformations  ├─ Business logic  ├─ CRUD operationscrud.py (300 lines)  └─ Data transformations  ├─ Database queries  ├─ Business logic  ├─ API endpointsmain.py (500 lines)```### Old (Monolithic)## Migration from Old Architecture```    # ... test with mock    mock_service = MagicMock()def test_api_endpoint():# Test API (mock service)    assert len(items) <= 10    items = repo.get_all(limit=10)    repo = AuctionRepository(test_db)def test_repository_get_all():# Test Repository (use test database)    assert len(result['items']) > 0    result = service.get_auctions()        service.repository = mock_repo    service = AuctionService(None)        mock_repo.get_all.return_value = [...]    mock_repo = MagicMock()def test_get_auctions():# Test Service (mock repository)```python### Unit Tests## Testing StrategyEach layer stays independent!4. **Add Auth Routes** (`main.py`)3. **Create Auth Service** (`services/auth_service.py`)2. **Create User Repository** (`repositories/user_repository.py`)1. **Create User Model** (`models/user.py`)### Adding User Authentication- Database (same tables)- Model (unified schema)- Repository (already handles all sources)**No changes needed to:**```    pass    # Uses existing service.scrape_source("newsource")async def scrape_newsource(bg: BackgroundTasks):@app.post("/api/scrape/newsource")```python3. **Add API Endpoint** (`main.py`)```# No changes needed if using dynamic scraper loading# Service automatically handles new source via scraper registry```python2. **Update Service** (`services/auction_service.py`)```        pass        # Implement scraping    def scrape_all(self):            return 'newsource'    def get_source_name(self):class NewSourceScraper(BaseScraper):```python1. **Create Scraper** (`scrapers/newsource.py`)### Adding a New Auction Source## Adding New Features```   ↓ Returns standardized format   ↓ Fetches external data4. Scraper      ↓ Manages transactions   ↓ Executes all database operations3. Repository Layer      ↓ Returns stats   ↓ Deletes closed items (repository.delete_old)   ↓ Marks old items unavailable (repository.mark_unavailable)   │   ↓ Creates or updates (repository.create/update)   │   ↓ Checks if exists (repository.get_by_lot_number)   ↓ For each item:   ↓ Calls scraper.scrape_all()   ↓ Creates GCSurplusScraper   ↓ service.scrape_source("gcsurplus")2. Service Layer      ↓ Creates background task   ↓ Receives scrape request1. API Layer```### POST /api/scrape/gcsurplus Request```Repository → Service (transform) → API → HTTP ResponseResponse flows back up through layers:      ↓ Manages connection   ↓ Provides database session5. Database Layer (core/database.py)      ↓ Maps to database table   ↓ Defines AuctionItem structure4. Model Layer (auction.py)      ↓ Returns AuctionItem models   ↓ Executes query   ↓ Applies filters   ↓ Builds SQLAlchemy query3. Repository Layer (auction_repository.py)      ↓ Transforms models to API format   ↓ Calls repository.get_all() and repository.count()   ↓ Creates AuctionRepository(db)   ↓ Calls get_auctions(skip, limit, filters)2. Service Layer (auction_service.py)      ↓ Creates AuctionService(db)   ↓ Extracts query params (skip, limit, filters)   ↓ Receives HTTP request1. API Layer (main.py)```### GET /api/auctions Request## Data Flow Example- Easy to swap database implementations- Easy to add new repositories (e.g., CommentRepository)- Easy to add new services (e.g., UserService, NotificationService)### 5. **Scalability**- Each layer can be refactored independently- Changes to business logic don't affect API- Changes to database queries don't affect business logic### 4. **Maintainability**- Models are shared across all layers- Repository methods can be used by multiple services- Service methods can be called from API, scheduler, or CLI### 3. **Reusability**- Test API without business logic (mock service)- Test repository without API (direct DB tests)- Test service layer without database (mock repository)### 2. **Testability**Each layer has a single responsibility, making code easier to understand and maintain.### 1. **Separation of Concerns**## Benefits of This Architecture```        db.close()    finally:        yield db    try:    db = SessionLocal()def get_db():SessionLocal = sessionmaker(bind=engine)engine = create_engine(DATABASE_URL, pool_pre_ping=True)```python**Example:**- Contain business logic- Execute queries- Define models**Doesn't:**- Handle session lifecycle- Provide session factory- Manage connection pooling- Create database engine**Does:****Responsibility:** Database connection management### 5. Database Layer (`core/`)```    # ... other columns    lot_number = Column(String(100), unique=True)    id = Column(Integer, primary_key=True)        __tablename__ = "auction_items"class AuctionItem(Base):```python**Example:**- Transform data- Access database- Contain business logic**Doesn't:**- Add model-level validations- Define relationships- Specify table schema- Define SQLAlchemy ORM models**Does:****Responsibility:** Define data structure### 4. Model Layer (`models/`)```        return query.offset(skip).limit(limit).all()        # Apply filters...        query = self.db.query(AuctionItem)    def get_all(self, skip=0, limit=50, **filters):            self.db = db    def __init__(self, db: Session):class AuctionRepository:```python**Example:**- Call external services- Know about HTTP or API- Contain business logic**Doesn't:**- Convert between models and dicts- Transaction management- Data filtering and sorting- CRUD operations- Execute database queries**Does:****Responsibility:** Data access and persistence### 3. Repository Layer (`repositories/`)```        return {"scraped": len(items)}                    self.repository.create_or_update(item)        for item in items:                items = scraper.scrape_all()        scraper = self._get_scraper(source)        # Business logic: orchestrate scraping and updating    def scrape_source(self, source: str):            self.repository = AuctionRepository(db)    def __init__(self, db: Session):class AuctionService:```python**Example:**- Access database session directly (uses repository)- Write SQL queries- Know about HTTP/FastAPI**Doesn't:**- Coordinate transactions- Handle complex operations (e.g., scraping + updating)- Transform data for API responses- Orchestrate between repositories and scrapers- Implement business rules**Does:****Responsibility:** Business logic and orchestration### 2. Service Layer (`services/`)```    return service.get_auctions(skip=skip, limit=limit)    service = AuctionService(db)):    db: Session = Depends(get_db)    limit: int = Query(100),    skip: int = Query(0),async def list_all_auctions(@app.get("/api/auctions")```python**Example:**- Transform data (beyond request/response)- Contain business logic- Access database directly**Doesn't:**- Handle HTTP errors- Return HTTP responses- Call service layer methods- Parse query parameters- Define FastAPI endpoints**Does:****Responsibility:** Handle HTTP requests and responses### 1. API Layer (`main.py`)## Layer Responsibilities```└── scheduler.py               # Background tasks├── main.py                    # FastAPI app & routes├── config.py                  # Configuration││   └── gsa.py                # GSA scraper│   ├── gcsurplus.py          # GCSurplus scraper│   ├── base.py               # Base scraper interface│   ├── __init__.py├── scrapers/                  # External data sources││   └── auction_service.py    # Business logic & orchestration│   ├── __init__.py├── services/                  # Business Logic Layer││   └── auction_repository.py # Database queries & operations│   ├── __init__.py├── repositories/              # Data Access Layer││   └── auction.py            # AuctionItem model│   ├── __init__.py├── models/                    # Data models (ORM)││   └── database.py           # DB connection & session management│   ├── __init__.py├── core/                      # Core infrastructureapp/```## Directory Structure```└─────────────────────────────────────────────────────────┘│        Connection pooling, session management           ││            Database Layer (core/database.py)            │┌────────────────────▼────────────────────────────────────┐                     │└────────────────────┬────────────────────────────────────┘│          SQLAlchemy ORM models, table definitions       ││              Model Layer (models/)                      │┌────────────────────▼────────────────────────────────────┐                     │└────────────────────┬────────────────────────────────────┘│        Data access, database queries, CRUD ops          ││           Repository Layer (repositories/)              │┌────────────────────▼────────────────────────────────────┐                     │└────────────────────┬────────────────────────────────────┘│        Business logic, orchestration, transformations   ││              Service Layer (services/)                  │┌────────────────────▼────────────────────────────────────┐                     │└────────────────────┬────────────────────────────────────┘│          FastAPI endpoints, request/response            ││                  API Layer (main.py)                    │┌─────────────────────────────────────────────────────────┐```The application now follows a **clean layered architecture** with proper separation of concerns:## OverviewUses APScheduler to run background tasks.
+"""
+
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import logging
+from datetime import datetime
+
+from core.database import get_db
+from services import AuctionService
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+def scrape_all_sources():
+    """
+    Scrape all auction sources and update database.
+    Called hourly by the scheduler.
+    """
+    logger.info(f"Starting scheduled scrape at {datetime.now()}")
+    
+    db_session = next(get_db())
+    
+    try:
+        service = AuctionService(db_session)
+        results = service.scrape_all_sources()
+        
+        logger.info(f"Scheduled scrape completed: {results}")
+        
+    except Exception as e:
+        logger.error(f"Error during scheduled scrape: {e}")
+    finally:
+        db_session.close()
+
+
+def start_scheduler():
+    """
+    Initialize and start the background scheduler.
+    Scrapes data every hour on the hour.
+    """
+    scheduler = BackgroundScheduler()
+    
+    # Schedule scraping every hour
+    scheduler.add_job(
+        scrape_all_sources,
+        trigger=CronTrigger(hour='*', minute=0),  # Every hour at minute 0
+        id='scrape_all_sources',
+        name='Scrape all auction sources',
+        replace_existing=True
+    )
+    
+    # Keep-alive job for Neon database (every 5 minutes)
+    from core.database import keep_alive
+    scheduler.add_job(
+        keep_alive,
+        trigger=CronTrigger(minute='*/5'),  # Every 5 minutes
+        id='database_keep_alive',
+        name='Keep Neon database awake',
+        replace_existing=True
+    )
+    
+    # Also run once at startup (after 1 minute delay)
+    scheduler.add_job(
+        scrape_all_sources,
+        'date',
+        run_date=datetime.now(),
+        id='startup_scrape',
+        name='Initial scrape on startup'
+    )
+    
+    scheduler.start()
+    logger.info("Scheduler started - scraping will run hourly")
+    logger.info("Database keep-alive will run every 5 minutes")
+    
+    return scheduler
+            
+            logger.info("Scrape job completed successfully")
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Error in scrape job: {e}", exc_info=True)
+
+
+def start_scheduler():
+    """Start the scheduler"""
+    # Add job to run every X hours
+    scheduler.add_job(
+        run_scrape_job,
+        trigger=IntervalTrigger(hours=settings.scrape_interval_hours),
+        id='scrape_job',
+        name='Scrape GCSurplus listings',
+        replace_existing=True
+    )
+    
+    # Run once on startup
+    scheduler.add_job(
+        run_scrape_job,
+        id='initial_scrape',
+        name='Initial scrape on startup'
+    )
+    
+    scheduler.start()
+    logger.info(f"Scheduler started. Will run every {settings.scrape_interval_hours} hours")
+
+
+def stop_scheduler():
+    """Stop the scheduler"""
+    if scheduler.running:
+        scheduler.shutdown()
+        logger.info("Scheduler stopped")
