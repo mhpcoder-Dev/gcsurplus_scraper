@@ -7,8 +7,11 @@ import logging
 
 from core.database import get_db, init_db
 from services import AuctionService
+from services.comment_service import CommentService
 from config import settings
 from scheduler import start_scheduler, stop_scheduler
+from schemas.comment import CommentCreate, CommentResponse, CommentListResponse
+from schemas.auction import AuctionListResponse, AuctionDetailResponse
 
 # Configure logging
 logging.basicConfig(
@@ -23,13 +26,17 @@ app = FastAPI(
     version="3.0.0"
 )
 
-# Configure CORS for Next.js
+# Configure CORS
 allowed_origins = [
     "http://localhost:3000",
     "http://localhost:3001",
 ]
 
-# Add production URLs from environment
+# Add production URLs from settings
+if settings.frontend_url:
+    allowed_origins.append(settings.frontend_url)
+
+# Add environment variable URLs (backward compatibility)
 if os.getenv("FRONTEND_URL"):
     allowed_origins.append(os.getenv("FRONTEND_URL"))
 if os.getenv("NEXT_PUBLIC_URL"):
@@ -50,15 +57,19 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and start scheduler on startup."""
-    logger.info("Starting FastAPI application")
-    logger.info(f"Database URL: {settings.database_url[:20]}...")
+    logger.info(f"Starting FastAPI application - Environment: {settings.environment}")
+    logger.info(f"Debug mode: {settings.debug}")
+    logger.info(f"Database URL: {settings.database_url[:30]}...")
     init_db()
     logger.info("Database initialized successfully")
     
-    # Start the scheduler with site-specific configurations
-    scheduler = start_scheduler()
-    if scheduler:
-        logger.info("Background scheduler started successfully")
+    # Start the scheduler if enabled
+    if settings.scheduler_enabled:
+        scheduler = start_scheduler()
+        if scheduler:
+            logger.info("Background scheduler started successfully")
+    else:
+        logger.info("Scheduler disabled in settings")
 
 
 @app.on_event("shutdown")
@@ -75,28 +86,36 @@ async def root():
     return {
         "message": "Multi-Source Auction Scraper API",
         "version": "3.0.0",
-        "sources": ["gcsurplus", "gsa", "treasury"],
+        "sources": ["gcsurplus", "gsa", "treasury", "state_dept"],
         "endpoints": {
             "auctions": "/api/auctions (unified endpoint for all sources)",
-            "upcoming": "/api/auctions/upcoming (future auctions like Treasury)",
+            "upcoming": "/api/auctions/upcoming (future auctions like Treasury or State Dept Preparing)",
             "gcsurplus": "/api/auctions/gcsurplus",
             "gsa": "/api/auctions/gsa",
             "treasury": "/api/auctions/treasury",
+            "state_dept": "/api/auctions/state_dept",
             "stats": "/api/stats",
+            "comments": {
+                "get": "GET /api/comments/{auction_id}",
+                "create": "POST /api/comments",
+                "delete": "DELETE /api/comments/{comment_id}",
+                "count": "GET /api/comments/{auction_id}/count"
+            },
             "scrape_all": "/api/scrape/all",
             "scrape_gcsurplus": "/api/scrape/gcsurplus",
             "scrape_gsa": "/api/scrape/gsa",
             "scrape_treasury": "/api/scrape/treasury",
+            "scrape_state_dept": "/api/scrape/state_dept",
             "docs": "/docs"
         }
     }
 
 
-@app.get("/api/auctions")
+@app.get("/api/auctions", response_model=AuctionListResponse)
 async def get_all_auctions(
     skip: int = Query(0, description="Number of items to skip"),
     limit: int = Query(100, description="Number of items to return"),
-    status: Optional[List[str]] = Query(None, description="Filter by status (can specify multiple: active, scheduled, upcoming, closed, expired)"),
+    status: Optional[str] = Query(None, description="Filter by status (active, scheduled, upcoming, closed, expired)"),
     source: Optional[str] = Query(None, description="Filter by source (gcsurplus, gsa, treasury, all)"),
     asset_type: Optional[str] = Query(None, description="Filter by asset type"),
     search: Optional[str] = Query(None, description="Search in title and description"),
@@ -104,68 +123,16 @@ async def get_all_auctions(
 ):
     """
     Get unified list of auction items from all sources with pagination and filters.
-    Supports multiple status values to fetch both 'scheduled' (GSA) and 'upcoming' (Treasury) auctions.
+    Returns structured DTO response with only required fields.
     """
     logger.info(f"GET /api/auctions - skip={skip}, limit={limit}, source={source}, status={status}")
     service = AuctionService(db)
     
-    # Handle multiple status values
-    status_filter = None
-    if status and len(status) > 0:
-        # If multiple status values, we'll need to handle this in the query
-        if len(status) == 1:
-            status_filter = status[0]
-        else:
-            # Multiple statuses - query each and combine, but be smart about pagination
-            # Fetch slightly more than needed to account for sorting after combination
-            fetch_limit = skip + limit + 20  # Buffer for sorting
-            all_items = []
-            
-            for stat in status:
-                result = service.get_auctions(
-                    skip=0,
-                    limit=fetch_limit,  # Fetch enough for this page
-                    status=stat,
-                    source=source if source != 'all' else None,
-                    asset_type=asset_type,
-                    search=search
-                )
-                all_items.extend(result['items'])
-            
-            # Sort combined results by closing_date
-            all_items.sort(key=lambda x: x.get('auctionEndDate') or '9999-12-31')
-            
-            # Apply pagination to combined results
-            paginated_items = all_items[skip:skip + limit]
-            
-            # For total count, we need to query each status count
-            total_count = 0
-            for stat in status:
-                count_result = service.repository.count(
-                    status=stat,
-                    source=source if source != 'all' else None,
-                    asset_type=asset_type
-                )
-                total_count += count_result
-            
-            return {
-                "items": paginated_items,
-                "total": total_count,
-                "skip": skip,
-                "limit": limit,
-                "filters": {
-                    "status": status,
-                    "source": source,
-                    "asset_type": asset_type,
-                    "search": search
-                }
-            }
-    
-    # Single or no status - use existing logic
+    # Get auctions using service (returns DTO)
     result = service.get_auctions(
         skip=skip,
         limit=limit,
-        status=status_filter,
+        status=status,
         source=source if source != 'all' else None,
         asset_type=asset_type,
         search=search
@@ -175,7 +142,7 @@ async def get_all_auctions(
 
 
 
-@app.get("/api/auctions/gcsurplus")
+@app.get("/api/auctions/gcsurplus", response_model=AuctionListResponse)
 async def list_gcsurplus_auctions(
     skip: int = Query(0, description="Number of items to skip"),
     limit: int = Query(100, description="Number of items to return"),
@@ -186,7 +153,7 @@ async def list_gcsurplus_auctions(
     return await get_all_auctions(skip, limit, status, "gcsurplus", None, None, db)
 
 
-@app.get("/api/auctions/gsa")
+@app.get("/api/auctions/gsa", response_model=AuctionListResponse)
 async def list_gsa_auctions(
     skip: int = Query(0, description="Number of items to skip"),
     limit: int = Query(100, description="Number of items to return"),
@@ -197,7 +164,7 @@ async def list_gsa_auctions(
     return await get_all_auctions(skip, limit, status, "gsa", None, None, db)
 
 
-@app.get("/api/auctions/treasury")
+@app.get("/api/auctions/treasury", response_model=AuctionListResponse)
 async def list_treasury_auctions(
     skip: int = Query(0, description="Number of items to skip"),
     limit: int = Query(100, description="Number of items to return"),
@@ -207,6 +174,15 @@ async def list_treasury_auctions(
     """Get US Treasury real estate auction items (upcoming auctions)"""
     return await get_all_auctions(skip, limit, status, "treasury", None, None, db)
 
+@app.get("/api/auctions/state_dept", response_model=AuctionListResponse)
+async def list_state_dept_auctions(
+    skip: int = Query(0, description="Number of items to skip"),
+    limit: int = Query(100, description="Number of items to return"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    db: Session = Depends(get_db)
+):
+    """Get US State Department auction items"""
+    return await get_all_auctions(skip, limit, status, "state_dept", None, None, db)
 
 @app.get("/api/auctions/upcoming")
 async def list_upcoming_auctions(
@@ -249,7 +225,7 @@ async def list_upcoming_auctions(
     }
 
 
-@app.get("/api/auctions/{lot_number}")
+@app.get("/api/auctions/{lot_number}", response_model=AuctionDetailResponse)
 async def get_auction(
     lot_number: str,
     source: Optional[str] = Query(None, description="Source of the auction"),
@@ -257,6 +233,7 @@ async def get_auction(
 ):
     """
     Get specific auction item by lot number.
+    Returns detailed DTO response.
     """
     service = AuctionService(db)
     item = service.get_auction_by_lot_number(lot_number, source)
@@ -388,6 +365,127 @@ async def scrape_treasury(background_tasks: BackgroundTasks):
     
     background_tasks.add_task(run_scrape)
     return {"message": "Treasury scraping job started"}
+
+
+@app.post("/api/scrape/state_dept")
+async def scrape_state_dept(background_tasks: BackgroundTasks):
+    """
+    Manually trigger scraping for State Department online auctions.
+    """
+    def run_scrape():
+        db_session = next(get_db())
+        try:
+            service = AuctionService(db_session)
+            result = service.scrape_source("state_dept")
+            print(f"State Dept: {result}")
+        except Exception as e:
+            print(f"Error during State Dept scraping: {e}")
+        finally:
+            db_session.close()
+    
+    background_tasks.add_task(run_scrape)
+    return {"message": "State Department scraping job started"}
+
+
+# ============================================================
+# Comment Endpoints
+# ============================================================
+
+@app.get("/api/comments/{auction_id}")
+async def get_comments(
+    auction_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all comments for a specific auction.
+    Returns comments sorted by newest first.
+    """
+    try:
+        service = CommentService(db)
+        comments = service.get_comments(auction_id)
+        return {"comments": comments}
+    except Exception as e:
+        logger.error(f"Error fetching comments for auction {auction_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch comments")
+
+
+@app.post("/api/comments")
+async def create_comment(
+    comment_data: CommentCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new comment on an auction.
+    
+    Request body:
+    - auctionId: The auction lot number (required)
+    - text: Comment text, 1-1000 characters (required)
+    - author: Author name, max 100 characters (optional, defaults to "Anonymous")
+    """
+    try:
+        service = CommentService(db)
+        new_comment = service.create_comment(
+            auction_id=comment_data.auctionId,
+            text=comment_data.text,
+            author=comment_data.author
+        )
+        return {"comment": new_comment}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error creating comment: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create comment")
+
+
+@app.delete("/api/comments/{comment_id}")
+async def delete_comment(
+    comment_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a comment by ID.
+    Returns 404 if comment not found.
+    """
+    try:
+        service = CommentService(db)
+        success = service.delete_comment(comment_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        
+        return {"success": True, "message": "Comment deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting comment {comment_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete comment")
+
+
+@app.get("/api/comments/{auction_id}/count")
+async def get_comment_count(
+    auction_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get the number of comments for an auction"""
+    try:
+        service = CommentService(db)
+        count = service.get_comment_count(auction_id)
+        return {"auction_id": auction_id, "count": count}
+    except Exception as e:
+        logger.error(f"Error counting comments for auction {auction_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to count comments")
+        db_session = next(get_db())
+        try:
+            service = AuctionService(db_session)
+            result = service.scrape_source("state_dept")
+            print(f"State Dept: {result}")
+        except Exception as e:
+            print(f"Error during State Dept scraping: {e}")
+        finally:
+            db_session.close()
+    
+    background_tasks.add_task(run_scrape)
+    return {"message": "State Department scraping job started"}
 
 
 @app.get("/api/stats")

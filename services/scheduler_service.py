@@ -21,7 +21,7 @@ import pytz
 from config import settings
 from services.auction_service import AuctionService
 from core.database import SessionLocal
-from scrapers import GCSurplusScraper, GSAScraper, TreasuryScraper
+from scrapers import GCSurplusScraper, GSAScraper, TreasuryScraper, StateDeptScraper
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class SchedulerService:
     """
     Manages scheduled scraping for multiple auction sources.
-    Each source (gcsurplus, gsa, treasury) can have its own interval.
+    Each source (gcsurplus, gsa, treasury, state_dept) can have its own interval.
     """
     
     # Map of scraper names to scraper classes
@@ -37,6 +37,7 @@ class SchedulerService:
         'gcsurplus': GCSurplusScraper,
         'gsa': GSAScraper,
         'treasury': TreasuryScraper,
+        'state_dept': StateDeptScraper,
     }
     
     def __init__(self):

@@ -3,12 +3,33 @@ Auction item database model.
 SQLAlchemy ORM model definition.
 """
 
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, Index
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, Index, Numeric
 from datetime import datetime
 from core.database import Base
 
 
-class AuctionItem(Base):
+# 1. Grouping Bidding Data
+class BiddingMixin:
+    """Mixin for bidding-related fields"""
+    # Use Numeric(12, 2) instead of Float for money to avoid precision issues
+    current_bid = Column(Numeric(12, 2), default=0.0)
+    minimum_bid = Column(Numeric(12, 2))
+    bid_increment = Column(Numeric(12, 2))
+    next_minimum_bid = Column(Numeric(12, 2))
+    currency = Column(String(10), default="USD") # Essential for multi-country scraping
+
+
+# 2. Grouping Location Data
+class LocationMixin:
+    """Mixin for location-related fields"""
+    country = Column(String(100), index=True)
+    city = Column(String(200), index=True)
+    region = Column(String(100)) # Can be State, Province, or Territory
+    postal_code = Column(String(20))
+    address_raw = Column(Text) # Original unparsed address string from scraper
+
+
+class AuctionItem(Base, BiddingMixin, LocationMixin):
     """Unified auction item database model for all sources (GCSurplus, GSA, etc.)"""
     __tablename__ = "auction_items"
     
@@ -35,27 +56,14 @@ class AuctionItem(Base):
     title = Column(String(500), nullable=False)
     description = Column(Text)
     
-    # Bidding info
-    current_bid = Column(Float, default=0.0)
-    minimum_bid = Column(Float)
-    bid_increment = Column(Float)
-    next_minimum_bid = Column(Float)
-    
-    # Status
+    # Status/Stock
     quantity = Column(Integer, default=1)
     status = Column(String(20), default="active", index=True)  # active, closed, expired, upcoming
     is_available = Column(Boolean, default=True, index=True)
     
-    # Location (support both Canadian provinces and US states)
-    location_city = Column(String(200))
-    location_province = Column(String(100))  # For Canadian items
-    location_state = Column(String(100))      # For US items
-    location_address = Column(Text)
-    
-    # Dates
-    closing_date = Column(DateTime, index=True)
-    bid_date = Column(DateTime)
-    time_remaining = Column(String(100))
+    # Dates (stored in UTC timezone)
+    closing_date = Column(DateTime, index=True)  # UTC timezone
+    bid_date = Column(DateTime)  # UTC timezone
     
     # Images
     image_urls = Column(Text)  # JSON string of image URLs
@@ -70,7 +78,7 @@ class AuctionItem(Base):
     asset_type = Column(String(50), index=True)  # 'cars', 'real-estate', 'electronics', etc.
     
     # Item URL
-    item_url = Column(String(500))
+    item_url = Column(String(1000))
     
     # Extra data (JSON) for source-specific fields
     extra_data = Column(Text)  # JSON string for flexible additional data
@@ -78,6 +86,9 @@ class AuctionItem(Base):
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<AuctionItem(lot_number='{self.lot_number}', source='{self.source}', title='{self.title[:50]}')>"
 
     def __repr__(self):
         return f"<AuctionItem(lot_number='{self.lot_number}', source='{self.source}', title='{self.title[:50]}')>"

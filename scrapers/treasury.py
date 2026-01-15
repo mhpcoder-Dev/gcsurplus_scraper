@@ -7,7 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 from scrapers.base import BaseScraper
@@ -126,17 +126,18 @@ class TreasuryScraper(BaseScraper):
                     # Start new item
                     current_item = {
                         'title': title,
-                        'location_address': full_address,
                         'description': '',
                         'asset_type': 'real-estate',
+                        'address_raw': full_address,
+                        'country': 'USA',
                         'extra_data': {'property_type': property_type}
                     }
                     
                     # Extract city and state from address
                     location_match = re.search(r',\s*([^,]+),\s*([A-Z]{2})\s*\d', full_address)
                     if location_match:
-                        current_item['location_city'] = location_match.group(1).strip()
-                        current_item['location_state'] = location_match.group(2).strip()
+                        current_item['city'] = location_match.group(1).strip()
+                        current_item['region'] = location_match.group(2).strip()
                     
                     # Get auction date - look for "Friday, January 30, 2026" pattern in nested fonts
                     date_text = ''
@@ -148,7 +149,11 @@ class TreasuryScraper(BaseScraper):
                     
                     if date_text:
                         try:
-                            current_item['closing_date'] = datetime.strptime(date_text, '%A, %B %d, %Y')
+                            dt = datetime.strptime(date_text, '%A, %B %d, %Y')
+                            # Treasury auctions are in Eastern Time, assume end of day
+                            dt = dt.replace(hour=23, minute=59, second=59)
+                            # Convert from Eastern Time to UTC (add 5 hours)
+                            current_item['closing_date'] = dt + timedelta(hours=5)
                         except ValueError as e:
                             self.logger.warning(f"Could not parse date '{date_text}': {e}")
                 
@@ -223,10 +228,16 @@ class TreasuryScraper(BaseScraper):
                 if date_match:
                     date_str = date_match.group(1)
                     try:
-                        item['closing_date'] = datetime.strptime(date_str, '%A, %B %d, %Y')
+                        dt = datetime.strptime(date_str, '%A, %B %d, %Y')
+                        # Treasury auctions are in Eastern Time, assume end of day
+                        dt = dt.replace(hour=23, minute=59, second=59)
+                        # Convert from Eastern Time to UTC (add 5 hours)
+                        item['closing_date'] = dt + timedelta(hours=5)
                     except ValueError:
                         try:
-                            item['closing_date'] = datetime.strptime(date_str, '%B %d, %Y')
+                            dt = datetime.strptime(date_str, '%B %d, %Y')
+                            dt = dt.replace(hour=23, minute=59, second=59)
+                            item['closing_date'] = dt + timedelta(hours=5)
                         except ValueError:
                             pass
             
@@ -358,7 +369,11 @@ class TreasuryScraper(BaseScraper):
                 time_str = date_match.group(2)
                 details['extra_data']['auction_time'] = f"{date_str} at {time_str}"
                 try:
-                    details['closing_date'] = datetime.strptime(date_str, '%A, %B %d, %Y')
+                    dt = datetime.strptime(date_str, '%A, %B %d, %Y')
+                    # Treasury auctions are in Eastern Time, assume end of day
+                    dt = dt.replace(hour=23, minute=59, second=59)
+                    # Convert from Eastern Time to UTC (add 5 hours)
+                    details['closing_date'] = dt + timedelta(hours=5)
                 except ValueError:
                     pass
             
@@ -408,10 +423,17 @@ class TreasuryScraper(BaseScraper):
             'status': 'upcoming',  # Treasury auctions are upcoming, not active yet
             'title': item.get('title', 'Treasury Real Estate Auction'),
             'description': item.get('description', 'Currently not available'),
-            'location_address': item.get('location_address', 'Currently not available'),
-            'location_city': item.get('location_city', 'Currently not available'),
-            'location_state': item.get('location_state'),
-            'minimum_bid': item.get('minimum_bid'),
+            'location': {
+                'address': item.get('location_address', 'Currently not available'),
+                'city': item.get('location_city', 'Currently not available'),
+                'state': item.get('location_state'),
+                'country': 'USA',
+                'raw': item.get('location_address', '')
+            },
+            'bidding': {
+                'minimum': item.get('minimum_bid'),
+                'currency': 'USD'
+            },
             'closing_date': item.get('closing_date'),
             'item_url': item.get('item_url', ''),
             'image_urls': item.get('image_urls', []),

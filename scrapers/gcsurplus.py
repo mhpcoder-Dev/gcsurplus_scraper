@@ -173,10 +173,12 @@ class GCSurplusScraper(BaseScraper):
                 'lot_number': lot_number,
                 'sale_number': sale_number,
                 'title': title,
-                'location_city': location_city,
-                'location_province': location_province,
+                'city': location_city,
+                'region': location_province,
+                'country': 'Canada',
                 'closing_date': closing_date,
                 'current_bid': current_bid,
+                'currency': 'CAD',
                 'item_url': item_url,
                 'source': 'gcsurplus',
                 'status': 'active',
@@ -196,12 +198,21 @@ class GCSurplusScraper(BaseScraper):
             return None
     
     def parse_date(self, date_text: str) -> Optional[datetime]:
-        """Parse date string to datetime object"""
+        """Parse date string to datetime object in UTC"""
         try:
+            from datetime import timedelta
             # Try common date formats
             for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y-%m-%d %H:%M:%S']:
                 try:
-                    return datetime.strptime(date_text, fmt)
+                    dt = datetime.strptime(date_text, fmt)
+                    # GCSurplus auctions are in Eastern Time
+                    # For date-only formats, assume end of day (23:59:59 ET)
+                    if fmt in ['%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y']:
+                        dt = dt.replace(hour=23, minute=59, second=59)
+                    # Convert from Eastern Time to UTC (add 5 hours for EST, 4 for EDT)
+                    # For simplicity, use EST offset of +5 hours
+                    dt = dt + timedelta(hours=5)
+                    return dt
                 except ValueError:
                     continue
             return None

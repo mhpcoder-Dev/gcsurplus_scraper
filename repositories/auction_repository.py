@@ -141,7 +141,9 @@ class AuctionRepository:
                 or_(
                     AuctionItem.title.ilike(search_term),
                     AuctionItem.description.ilike(search_term),
-                    AuctionItem.location_city.ilike(search_term),
+                    AuctionItem.city.ilike(search_term),
+                    AuctionItem.country.ilike(search_term),
+                    AuctionItem.region.ilike(search_term),
                     AuctionItem.agency.ilike(search_term)
                 )
             )
@@ -236,7 +238,7 @@ class AuctionRepository:
         
         # Count by source (include both active and upcoming)
         sources = {}
-        for source_name in ['gcsurplus', 'gsa', 'treasury']:
+        for source_name in ['gcsurplus', 'gsa', 'treasury', 'state_dept']:
             source_count = self.db.query(AuctionItem).filter(
                 AuctionItem.source == source_name,
                 or_(AuctionItem.status == "active", AuctionItem.status == "upcoming")

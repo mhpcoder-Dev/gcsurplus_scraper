@@ -81,16 +81,17 @@ class BaseScraper(ABC):
             'minimum_bid': None,
             'bid_increment': None,
             'next_minimum_bid': None,
+            'currency': 'USD',
+            'country': '',
+            'city': '',
+            'region': '',
+            'postal_code': '',
+            'address_raw': '',
             'quantity': 1,
             'status': 'active',
             'is_available': True,
-            'location_city': '',
-            'location_province': '',
-            'location_state': '',
-            'location_address': '',
             'closing_date': None,
             'bid_date': None,
-            'time_remaining': None,
             'image_urls': [],
             'contact_name': None,
             'contact_phone': None,
@@ -103,6 +104,24 @@ class BaseScraper(ABC):
         # Merge defaults with item data
         standardized = {**defaults, **item}
         
+        # Map old nested style to flat if present (for backward compatibility during migration)
+        if 'bidding' in item and isinstance(item['bidding'], dict):
+            b = item['bidding']
+            if 'current' in b: standardized['current_bid'] = b['current']
+            if 'minimum' in b: standardized['minimum_bid'] = b['minimum']
+            if 'increment' in b: standardized['bid_increment'] = b['increment']
+            if 'next_minimum' in b: standardized['next_minimum_bid'] = b['next_minimum']
+            if 'currency' in b: standardized['currency'] = b['currency']
+            
+        if 'location' in item and isinstance(item['location'], dict):
+            loc = item['location']
+            if 'city' in loc: standardized['city'] = loc['city']
+            if 'country' in loc: standardized['country'] = loc['country']
+            if 'state' in loc: standardized['region'] = loc['state']
+            if 'province' in loc: standardized['region'] = loc['province']
+            if 'address' in loc: standardized['address_raw'] = loc['address']
+            if 'raw' in loc: standardized['address_raw'] = loc['raw']
+
         # Ensure source is set
         if 'source' not in standardized or not standardized['source']:
             standardized['source'] = self.source_name
