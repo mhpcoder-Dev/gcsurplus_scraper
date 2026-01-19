@@ -10,6 +10,7 @@ from datetime import datetime
 import re
 import logging
 import pytz
+import pycountry
 
 from scrapers.base import BaseScraper
 
@@ -89,15 +90,19 @@ class StateDeptScraper(BaseScraper):
         if not container:
             return None
             
-        # Extract GUID from onclick
-        onclick = container.get('onclick', '')
-        guid_match = re.search(r'/en-US/Auction/Index/([a-z0-9-]+)', onclick)
+        # Extract GUID from onclick (handles both onclick and onkeypress)
+        onclick = container.get('onclick', '') or container.get('onkeypress', '')
+        guid_match = re.search(r'/en-US/Auction/Index/([a-zA-Z0-9-]+)', onclick, re.IGNORECASE)
         if not guid_match:
+            self.logger.debug(f"Could not extract GUID from onclick: {onclick[:100]}")
             return None
         guid = guid_match.group(1)
         
-        # Location
-        location_div = block.find('div', style=re.compile(r'text-align:\s*center'))
+        # Location - Look for a div containing city/country info
+        location_div = container.find('div', style=re.compile(r'text-align:\s*center'))
+        if not location_div:
+            # Fallback: try to find any div with location-like text near the container
+            location_div = block.find('div', string=re.compile(r',\s*[A-Z]{2}'))
         location_text = location_div.get_text(strip=True) if location_div else "Unknown"
         
         # Status
@@ -111,17 +116,27 @@ class StateDeptScraper(BaseScraper):
         elif 'closed' in status_text:
             mapped_status = 'closed'
             
-        # Dates
-        date_span = block.find('span', localdatetime=True)
+        # Dates - Look for span with localdatetime attribute
+        date_span = block.find('span', attrs={'localdatetime': True})
         date_val = None
         if date_span:
-            raw_date = date_span.get('localdatetime') # Format: 2026-01-14 10:00:00Z
+            # The date text is directly in this span
+            raw_date = date_span.get_text(strip=True)  # Format: 2026-01-20 11:00:00Z
             try:
-                # Replace 'Z' with '+0000' for parsing or just use fromisoformat
-                clean_date = raw_date.replace('Z', '+00:00')
-                date_val = datetime.fromisoformat(clean_date)
-            except:
-                pass
+                # Parse the datetime string
+                if raw_date and raw_date.endswith('Z'):
+                    clean_date = raw_date.replace('Z', '+00:00')
+                    date_val = datetime.fromisoformat(clean_date)
+                elif raw_date:
+                    # Try parsing without timezone
+                    try:
+                        date_val = datetime.strptime(raw_date, '%Y-%m-%d %H:%M:%S')
+                        # Assume UTC
+                        date_val = date_val.replace(tzinfo=pytz.UTC)
+                    except ValueError:
+                        pass
+            except Exception as e:
+                self.logger.debug(f"Could not parse date: {raw_date}, error: {e}")
 
         return {
             'guid': guid,
@@ -131,118 +146,194 @@ class StateDeptScraper(BaseScraper):
         }
 
     def _scrape_auction_details(self, url: str, metadata: Dict) -> List[Dict]:
-        """Fetch detail page and parse individual lots"""
-        try:
-            response = self.session.get(url, timeout=30)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Find currency
-            currency = "USD"
-            currency_msg = soup.find(string=re.compile(r'Prices in', re.I))
-            if currency_msg:
-                # Extracts "USD" from "Prices in USD ($)"
-                cur_match = re.search(r'in\s+([A-Z]{3})', currency_msg)
-                if cur_match:
-                    currency = cur_match.group(1)
-            
-            # Location parsing
-            city = metadata['location_raw']
-            country = ""
-            if ',' in city:
-                parts = city.split(',')
-                city = parts[0].strip()
-                country = parts[1].strip()
-
-            lots = []
-            lot_containers = soup.find_all('div', class_='oa-lot-details')
-            
-            for container in lot_containers:
-                try:
-                    title_div = container.find('div', class_='name-of-the-item')
-                    if not title_div:
-                        continue
+        """Fetch detail page and parse individual lots from all pages"""
+        all_lots = []
+        page_num = 1
+        
+        # Initialize location variables that will be set on first page
+        currency = "USD"
+        city = metadata['location_raw']
+        country = ""
+        country_code = ""
+        
+        while True:
+            try:
+                # Construct URL for current page
+                if page_num == 1:
+                    page_url = url
+                else:
+                    page_url = f"{url}/Page/{page_num}"
+                
+                self.logger.info(f"Fetching page {page_num}: {page_url}")
+                response = self.session.get(page_url, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # Parse metadata on first page only
+                if page_num == 1:
+                    # Find currency
+                    currency_msg = soup.find(string=re.compile(r'Prices in', re.I))
+                    if currency_msg:
+                        # Extracts "USD" from "Prices in USD ($)"
+                        cur_match = re.search(r'in\s+([A-Z]{3})', currency_msg)
+                        if cur_match:
+                            currency = cur_match.group(1)
                     
-                    full_title = title_div.get_text(strip=True)
-                    # "Lot#1: Title"
-                    lot_num = "unknown"
-                    title = full_title
-                    if ':' in full_title:
-                        lot_num_part, title = full_title.split(':', 1)
-                        lot_num = lot_num_part.replace('Lot#', '').strip()
-                        title = title.strip()
-                    
-                    # More robust lot_number for DB uniqueness
-                    db_lot_number = f"state-{metadata['guid']}-{lot_num}"
-                    
-                    # Status of this specific lot
-                    lot_status = metadata['status']
-                    status_indicator = container.find('div', class_='oa-generic-status-indicator')
-                    if status_indicator:
-                        lot_status_text = status_indicator.get_text(strip=True).lower()
-                        if 'active' in lot_status_text:
-                            lot_status = 'active'
-                        elif 'preparing' in lot_status_text:
-                            lot_status = 'upcoming'
-                        elif 'closed' in lot_status_text:
-                            lot_status = 'closed'
-
-                    # Current Bid
-                    current_bid = 0.0
-                    # Often bid is in a span or div near the bottom
-                    # Look for "Current Bid" label
-                    bid_label = container.find(string=re.compile(r'Current Bid', re.I))
-                    if bid_label:
-                        bid_val_node = bid_label.find_parent('div').find_next_sibling('div')
-                        if bid_val_node:
-                            bid_text = bid_val_node.get_text(strip=True).replace(',', '')
-                            bid_match = re.search(r'(\d+\.?\d*)', bid_text)
-                            if bid_match:
-                                current_bid = float(bid_match.group(1))
-
-                    # Image URL
-                    image_urls = []
-                    img_tag = container.find_all('img')
-                    for img in img_tag:
-                        src = img.get('src')
-                        if src:
-                            if src.startswith('/'):
-                                src = self.base_url + src
-                            image_urls.append(src)
-
-                    item = {
-                        'lot_number': db_lot_number,
-                        'sale_number': metadata['guid'][:8].upper(),
-                        'title': title,
-                        'source': self.get_source_name(),
-                        'current_bid': current_bid,
-                        'status': lot_status,
-                        'city': city,
-                        'country': country,
-                        'currency': currency,
-                        'closing_date': metadata['date'],
-                        'image_urls': image_urls,
-                        'item_url': url,
-                        'description': f"Auction Location: {metadata['location_raw']}",
-                        'address_raw': metadata['location_raw'],
-                        'extra_data': {
-                            'original_location': metadata['location_raw'],
-                            'guid': metadata['guid']
-                        }
-                    }
-                    
-                    if self.validate_item(item):
-                        lots.append(self.standardize_item(item))
+                    # Parse "City, CountryCode" format from location_raw
+                    if ',' in metadata['location_raw']:
+                        parts = metadata['location_raw'].split(',')
+                        city = parts[0].strip()
+                        country_code = parts[-1].strip()
                         
-                except Exception as e:
-                    self.logger.error(f"Error parsing lot in {url}: {e}")
-                    continue
-            
-            return lots
+                        # Convert ISO 2-letter code to full country name
+                        try:
+                            country_obj = pycountry.countries.get(alpha_2=country_code)
+                            if country_obj:
+                                country = country_obj.name
+                            else:
+                                # Fallback to code if not found
+                                country = country_code
+                        except Exception as e:
+                            self.logger.debug(f"Could not resolve country code '{country_code}': {e}")
+                            country = country_code
 
-        except Exception as e:
-            self.logger.error(f"Error scraping details for {url}: {e}")
-            return []
+                # Find all lot containers (each auction item) on this page
+                lot_containers = soup.find_all('div', class_='oa-lot-container')
+                self.logger.info(f"Found {len(lot_containers)} lots on page {page_num}")
+                
+                # No lots on this page, we've reached the end
+                if not lot_containers:
+                    self.logger.info(f"No more lots found, stopping at page {page_num}")
+                    break
+                
+                for container in lot_containers:
+                    try:
+                        # Find the oa-lot-details div within the container
+                        lot_details = container.find('div', class_='oa-lot-details')
+                        if not lot_details:
+                            continue
+                        
+                        # Title - in 'name-of-the-item' div
+                        title_div = lot_details.find('div', class_='name-of-the-item')
+                        if not title_div:
+                            self.logger.debug("No title found, skipping lot")
+                            continue
+                        
+                        title = title_div.get_text(strip=True)
+                        
+                        # Lot number - in 'oa-lot-number' div
+                        lot_num = "unknown"
+                        lot_num_div = lot_details.find('div', class_='oa-lot-number')
+                        if lot_num_div:
+                            # The lot number is in a nested div with class 'form-control'
+                            lot_num_val = lot_num_div.find('div', class_='form-control')
+                            if lot_num_val:
+                                lot_num = lot_num_val.get_text(strip=True)
+                        
+                        # More robust lot_number for DB uniqueness
+                        db_lot_number = f"state-{metadata['guid']}-lot{lot_num}"
+                        
+                        # Status of this specific lot
+                        lot_status = metadata['status']
+                        status_indicator = lot_details.find('div', class_='oa-generic-status-indicator')
+                        if status_indicator:
+                            lot_status_text = status_indicator.get_text(strip=True).lower()
+                            if 'active' in lot_status_text:
+                                lot_status = 'active'
+                            elif 'preparing' in lot_status_text:
+                                lot_status = 'upcoming'
+                            elif 'closed' in lot_status_text:
+                                lot_status = 'closed'
+
+                        # Current Price - Look for label "Current price" or "Current Bid"
+                        current_bid = 0.0
+                        price_label = lot_details.find(string=re.compile(r'Current (price|Bid)', re.I))
+                        if price_label:
+                            # Find the parent form-group, then find the div with the price
+                            form_group = price_label.find_parent('div', class_='form-group')
+                            if form_group:
+                                price_div = form_group.find('div', class_='form-control')
+                                if price_div:
+                                    price_text = price_div.get_text(strip=True).replace(',', '')
+                                    price_match = re.search(r'(\d+\.?\d*)', price_text)
+                                    if price_match:
+                                        current_bid = float(price_match.group(1))
+
+                        # Description
+                        description = ""
+                        desc_label = lot_details.find(string=re.compile(r'Description', re.I))
+                        if desc_label:
+                            form_group = desc_label.find_parent('div', class_='form-group')
+                            if form_group:
+                                desc_div = form_group.find('div', class_='form-control')
+                                if desc_div:
+                                    description = desc_div.get_text(strip=True)[:500]  # Limit to 500 chars
+
+                        # Image URL - Look for images in the container
+                        image_urls = []
+                        # Look in the whole container, not just lot_details
+                        img_tags = container.find_all('img', class_='lot-image-thumb')
+                        for img in img_tags:
+                            src = img.get('src')
+                            if src:
+                                if src.startswith('/'):
+                                    src = self.base_url + src
+                                image_urls.append(src)
+
+                        item = {
+                            'lot_number': db_lot_number,
+                            'sale_number': metadata['guid'][:8].upper(),
+                            'title': title,
+                            'source': self.get_source_name(),
+                            'current_bid': current_bid,
+                            'status': lot_status,
+                            'city': city,
+                            'country': country,
+                            'currency': currency,
+                            'closing_date': metadata['date'],
+                            'image_urls': image_urls,
+                            'item_url': page_url,  # Use page URL so it points to the correct page
+                            'description': description or f"Auction Location: {metadata['location_raw']}",
+                            'address_raw': metadata['location_raw'],
+                            'extra_data': {
+                                'original_location': metadata['location_raw'],
+                                'guid': metadata['guid'],
+                                'lot_number': lot_num,
+                                'page': page_num,
+                                'country_code': country_code if 'country_code' in locals() else ''
+                            }
+                        }
+                        
+                        if self.validate_item(item):
+                            all_lots.append(self.standardize_item(item))
+                        else:
+                            self.logger.warning(f"Failed validation for lot: {title[:50]}")
+                            
+                    except Exception as e:
+                        self.logger.error(f"Error parsing lot on page {page_num}: {e}")
+                        continue
+                
+                # Check for next page - look for pagination
+                pagination = soup.find('ul', class_='pagination')
+                has_next_page = False
+                if pagination:
+                    next_link = pagination.find('li', class_='PagedList-skipToNext')
+                    if next_link and 'disabled' not in next_link.get('class', []):
+                        has_next_page = True
+                
+                if not has_next_page:
+                    self.logger.info(f"No more pages found after page {page_num}")
+                    break
+                
+                # Move to next page
+                page_num += 1
+                
+            except Exception as e:
+                self.logger.error(f"Error scraping page {page_num} for {url}: {e}")
+                break
+        
+        self.logger.info(f"Total lots scraped from all pages: {len(all_lots)}")
+        return all_lots
 
     def scrape_single(self, item_id: str) -> Optional[Dict]:
         # Implementation for single item if needed

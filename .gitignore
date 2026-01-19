@@ -23,6 +23,11 @@ wheels/
 .installed.cfg
 *.egg
 
+
+#Pages Folder
+
+online-auction_pages/
+
 # Environment
 .env
 .venv

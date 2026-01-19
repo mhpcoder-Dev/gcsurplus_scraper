@@ -13,3 +13,4 @@ apscheduler==3.10.4
 pytz==2024.1
 selenium==4.27.1
 webdriver-manager==4.0.2
+pycountry==24.6.1
