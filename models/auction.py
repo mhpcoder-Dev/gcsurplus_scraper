@@ -17,6 +17,9 @@ class BiddingMixin:
     bid_increment = Column(Numeric(12, 2))
     next_minimum_bid = Column(Numeric(12, 2))
     currency = Column(String(10), default="USD") # Essential for multi-country scraping
+    # Dates (stored in UTC timezone)
+    closing_date = Column(DateTime, index=True)  # UTC timezone
+    bid_date = Column(DateTime)  # UTC timezone
 
 
 # 2. Grouping Location Data
@@ -29,7 +32,15 @@ class LocationMixin:
     address_raw = Column(Text) # Original unparsed address string from scraper
 
 
-class AuctionItem(Base, BiddingMixin, LocationMixin):
+# 3. Grouping Contact Data
+class ContactMixin:
+    """Mixin for contact-related fields"""
+    contact_name = Column(String(200))
+    contact_phone = Column(String(50))
+    contact_email = Column(String(200))
+
+
+class AuctionItem(Base, BiddingMixin, LocationMixin, ContactMixin):
     """Unified auction item database model for all sources (GCSurplus, GSA, etc.)"""
     __tablename__ = "auction_items"
     
@@ -61,17 +72,8 @@ class AuctionItem(Base, BiddingMixin, LocationMixin):
     status = Column(String(20), default="active", index=True)  # active, closed, expired, upcoming
     is_available = Column(Boolean, default=True, index=True)
     
-    # Dates (stored in UTC timezone)
-    closing_date = Column(DateTime, index=True)  # UTC timezone
-    bid_date = Column(DateTime)  # UTC timezone
-    
     # Images
     image_urls = Column(Text)  # JSON string of image URLs
-    
-    # Contact
-    contact_name = Column(String(200))
-    contact_phone = Column(String(50))
-    contact_email = Column(String(200))
     
     # Agency/Organization
     agency = Column(String(200))
@@ -86,9 +88,6 @@ class AuctionItem(Base, BiddingMixin, LocationMixin):
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    def __repr__(self):
-        return f"<AuctionItem(lot_number='{self.lot_number}', source='{self.source}', title='{self.title[:50]}')>"
 
     def __repr__(self):
         return f"<AuctionItem(lot_number='{self.lot_number}', source='{self.source}', title='{self.title[:50]}')>"

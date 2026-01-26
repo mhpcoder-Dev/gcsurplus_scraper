@@ -23,6 +23,11 @@ wheels/
 .installed.cfg
 *.egg
 
+
+#Pages Folder
+
+online-auction_pages/
+
 # Environment
 .env
 .venv
@@ -45,3 +50,6 @@ wheels/
 # OS
 .DS_Store
 Thumbs.db
+
+debug_gcsurplus.html
+./debug_gcsurplus.html

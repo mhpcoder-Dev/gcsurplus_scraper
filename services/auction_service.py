@@ -17,6 +17,7 @@ from schemas.auction import (
     AuctionListResponse,
     AuctionLocation,
     AuctionBidding,
+    AuctionContact,
     PaginationMeta
 )
 
@@ -289,7 +290,15 @@ class AuctionService:
             minimum_bid=item.minimum_bid,
             bid_increment=item.bid_increment,
             next_minimum_bid=item.next_minimum_bid,
-            currency=item.currency
+            currency=item.currency,
+            closing_date=item.closing_date,
+            bid_date=item.bid_date
+        )
+        
+        contact = AuctionContact(
+            contact_name=item.contact_name,
+            contact_phone=item.contact_phone,
+            contact_email=item.contact_email
         )
         
         # Get first image URL
@@ -308,12 +317,12 @@ class AuctionService:
             source=item.source,
             title=item.title,
             status=item.status,
-            closing_date=item.closing_date,
             image_urls=first_image,
             agency=item.agency,
             asset_type=item.asset_type,
             location=location,
             bidding=bidding,
+            contact=contact,
             is_available=item.is_available,
             item_url=item.item_url
         )
@@ -333,7 +342,15 @@ class AuctionService:
             minimum_bid=item.minimum_bid,
             bid_increment=item.bid_increment,
             next_minimum_bid=item.next_minimum_bid,
-            currency=item.currency
+            currency=item.currency,
+            closing_date=item.closing_date,
+            bid_date=item.bid_date
+        )
+        
+        contact = AuctionContact(
+            contact_name=item.contact_name,
+            contact_phone=item.contact_phone,
+            contact_email=item.contact_email
         )
         
         # Parse image URLs
@@ -361,19 +378,15 @@ class AuctionService:
             description=item.description,
             status=item.status,
             quantity=item.quantity,
-            closing_date=item.closing_date,
-            bid_date=item.bid_date,
             created_at=item.created_at,
             updated_at=item.updated_at,
             image_urls=image_urls,
-            contact_name=item.contact_name,
-            contact_phone=item.contact_phone,
-            contact_email=item.contact_email,
             agency=item.agency,
             asset_type=item.asset_type,
             item_url=item.item_url,
             location=location,
             bidding=bidding,
+            contact=contact,
             extra_data=extra_data,
             is_available=item.is_available
         )

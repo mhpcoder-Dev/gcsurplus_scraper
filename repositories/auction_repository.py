@@ -112,11 +112,16 @@ class AuctionRepository:
         # Apply filters in order of selectivity (most selective first)
         # This helps the query planner use the best index
         if status:
-            query = query.filter(AuctionItem.status == status)
+            # Support multiple statuses separated by comma
+            statuses = [s.strip() for s in status.split(',')]
+            if len(statuses) > 1:
+                query = query.filter(AuctionItem.status.in_(statuses))
+            else:
+                query = query.filter(AuctionItem.status == statuses[0])
             
             # If status is 'active', only return auctions that haven't ended yet
             # This handles timezone conversion issues from USA sites
-            if status == 'active':
+            if 'active' in statuses:
                 query = query.filter(
                     or_(
                         AuctionItem.closing_date.is_(None),
@@ -174,11 +179,16 @@ class AuctionRepository:
             query = query.filter(AuctionItem.source == source)
         
         if status:
-            query = query.filter(AuctionItem.status == status)
+            # Support multiple statuses separated by comma
+            statuses = [s.strip() for s in status.split(',')]
+            if len(statuses) > 1:
+                query = query.filter(AuctionItem.status.in_(statuses))
+            else:
+                query = query.filter(AuctionItem.status == statuses[0])
             
             # If status is 'active', only count auctions that haven't ended yet
             # This ensures pagination metadata matches the filtered results
-            if status == 'active':
+            if 'active' in statuses:
                 query = query.filter(
                     or_(
                         AuctionItem.closing_date.is_(None),
