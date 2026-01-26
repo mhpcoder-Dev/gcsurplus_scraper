@@ -50,3 +50,6 @@ online-auction_pages/
 # OS
 .DS_Store
 Thumbs.db
+
+debug_gcsurplus.html
+./debug_gcsurplus.html

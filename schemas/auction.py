@@ -21,6 +21,16 @@ class AuctionLocation(BaseModel):
         from_attributes = True
 
 
+class AuctionContact(BaseModel):
+    """Contact information for an auction item"""
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
 class AuctionBidding(BaseModel):
     """Bidding information for an auction item"""
     current_bid: Optional[Decimal] = Field(None, description="Current bid amount")
@@ -28,6 +38,8 @@ class AuctionBidding(BaseModel):
     bid_increment: Optional[Decimal] = Field(None, description="Bid increment")
     next_minimum_bid: Optional[Decimal] = Field(None, description="Next minimum bid")
     currency: str = Field(default="USD", description="Currency code")
+    closing_date: Optional[datetime] = Field(None, description="Auction closing date (UTC)")
+    bid_date: Optional[datetime] = Field(None, description="Bid start date (UTC)")
     
     @validator('current_bid', 'minimum_bid', 'bid_increment', 'next_minimum_bid', pre=True)
     def convert_to_float(cls, v):
@@ -48,7 +60,6 @@ class AuctionBase(BaseModel):
     source: str
     title: str
     status: str
-    closing_date: Optional[datetime] = None
     image_urls: Optional[str] = None  # First image or JSON string
     agency: Optional[str] = None
     asset_type: Optional[str] = None
@@ -56,6 +67,7 @@ class AuctionBase(BaseModel):
     # Embedded objects
     location: Optional[AuctionLocation] = None
     bidding: Optional[AuctionBidding] = None
+    contact: Optional[AuctionContact] = None
     
     # Computed fields
     is_available: bool = True
@@ -91,19 +103,12 @@ class AuctionDetailResponse(BaseModel):
     status: str
     quantity: Optional[int] = 1
     
-    # Dates
-    closing_date: Optional[datetime] = None
-    bid_date: Optional[datetime] = None
+    # Metadata dates
     created_at: datetime
     updated_at: datetime
     
     # Images (full array)
     image_urls: Optional[List[str]] = None
-    
-    # Contact
-    contact_name: Optional[str] = None
-    contact_phone: Optional[str] = None
-    contact_email: Optional[str] = None
     
     # Agency/Organization
     agency: Optional[str] = None
@@ -115,6 +120,7 @@ class AuctionDetailResponse(BaseModel):
     # Embedded objects
     location: Optional[AuctionLocation] = None
     bidding: Optional[AuctionBidding] = None
+    contact: Optional[AuctionContact] = None
     
     # Extra data (parsed JSON)
     extra_data: Optional[Dict[str, Any]] = None
